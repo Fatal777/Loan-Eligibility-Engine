@@ -1,0 +1,32 @@
+{
+  "name": "loan-eligibility-engine",
+  "version": "1.0.0",
+  "description": "Automated loan eligibility matching engine with n8n workflows",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "serverless deploy",
+    "deploy:dev": "serverless deploy --stage dev",
+    "deploy:prod": "serverless deploy --stage prod",
+    "remove": "serverless remove",
+    "logs": "serverless logs -f processCSV -t",
+    "invoke:local": "serverless invoke local -f processCSV",
+    "n8n:start": "docker-compose up -d",
+    "n8n:stop": "docker-compose down",
+    "n8n:logs": "docker-compose logs -f n8n"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-python-requirements": "^6.0.0"
+  },
+  "keywords": [
+    "loan",
+    "eligibility",
+    "n8n",
+    "serverless",
+    "aws",
+    "lambda"
+  ],
+  "author": "",
+  "license": "MIT"
+}

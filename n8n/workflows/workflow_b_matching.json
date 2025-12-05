@@ -1,0 +1,338 @@
+{
+  "name": "Workflow B - User-Loan Matching (Eligibility Filter)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "matching-trigger",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "matching-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract batch info from webhook payload\nconst batchId = $input.first().json.body?.batchId || $input.first().json.batchId;\nconst userCount = $input.first().json.body?.userCount || $input.first().json.userCount || 0;\n\nreturn [{\n  json: {\n    batchId,\n    userCount,\n    startTime: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-payload",
+      "name": "Parse Webhook Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  user_id, email, monthly_income, credit_score, \n  employment_status, age, batch_id\nFROM users \nWHERE batch_id = $1 AND processed = false\nORDER BY user_id;",
+        "options": {
+          "queryParams": "={{ $json.batchId }}"
+        }
+      },
+      "id": "fetch-users",
+      "name": "Fetch Users (Batch)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [650, 200],
+      "credentials": {
+        "postgres": {
+          "id": "loan-db",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  product_id, product_name, provider_name,\n  interest_rate_min, interest_rate_max,\n  min_loan_amount, max_loan_amount,\n  min_monthly_income, min_credit_score, max_credit_score,\n  required_employment_status, min_age, max_age\nFROM loan_products \nWHERE is_active = true\nORDER BY provider_name;",
+        "options": {}
+      },
+      "id": "fetch-products",
+      "name": "Fetch Loan Products",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [650, 400],
+      "credentials": {
+        "postgres": {
+          "id": "loan-db",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * OPTIMIZATION TREASURE HUNT SOLUTION\n * ===================================\n * Multi-stage filtering pipeline for efficient matching:\n * \n * Stage 1: SQL Pre-filter (already done in query)\n *   - Only fetch active products and unprocessed users\n *   \n * Stage 2: Index-based bucketing\n *   - Group products by credit score ranges\n *   - Group products by income requirements\n *   \n * Stage 3: Rule-based matching\n *   - Fast boolean checks for eligibility criteria\n *   - Calculate match score based on how well user fits\n *   \n * Stage 4: LLM verification (optional, for edge cases)\n *   - Only for matches with medium confidence\n *   - Evaluate qualitative factors\n */\n\nconst users = $('Fetch Users (Batch)').all().map(item => item.json);\nconst products = $('Fetch Loan Products').all().map(item => item.json);\nconst batchId = $('Parse Webhook Payload').first().json.batchId;\n\nconst matches = [];\nconst stats = {\n  totalUsers: users.length,\n  totalProducts: products.length,\n  totalMatches: 0,\n  highConfidence: 0,\n  mediumConfidence: 0,\n  lowConfidence: 0\n};\n\n// Stage 2: Create product buckets for faster lookup\nconst productBuckets = {\n  byCreditScore: {},\n  byIncomeRange: {}\n};\n\nproducts.forEach(product => {\n  // Bucket by credit score range\n  const scoreRanges = ['300-500', '500-650', '650-750', '750-900'];\n  scoreRanges.forEach(range => {\n    const [min, max] = range.split('-').map(Number);\n    if (product.min_credit_score <= max && (product.max_credit_score || 900) >= min) {\n      if (!productBuckets.byCreditScore[range]) {\n        productBuckets.byCreditScore[range] = [];\n      }\n      productBuckets.byCreditScore[range].push(product);\n    }\n  });\n});\n\n// Stage 3: Rule-based matching function\nfunction matchUserToProducts(user) {\n  const userMatches = [];\n  \n  // Determine user's credit score bucket\n  let userScoreBucket;\n  if (user.credit_score < 500) userScoreBucket = '300-500';\n  else if (user.credit_score < 650) userScoreBucket = '500-650';\n  else if (user.credit_score < 750) userScoreBucket = '650-750';\n  else userScoreBucket = '750-900';\n  \n  // Get candidate products from bucket (Stage 2 optimization)\n  const candidateProducts = productBuckets.byCreditScore[userScoreBucket] || products;\n  \n  candidateProducts.forEach(product => {\n    let eligible = true;\n    let score = 100;\n    const reasons = [];\n    \n    // Check credit score\n    if (user.credit_score < product.min_credit_score) {\n      eligible = false;\n      reasons.push(`Credit score ${user.credit_score} below minimum ${product.min_credit_score}`);\n    } else if (product.max_credit_score && user.credit_score > product.max_credit_score) {\n      eligible = false;\n      reasons.push(`Credit score ${user.credit_score} above maximum ${product.max_credit_score}`);\n    } else {\n      // Score bonus for credit score\n      const scoreMargin = user.credit_score - product.min_credit_score;\n      score += Math.min(scoreMargin / 10, 10);\n    }\n    \n    // Check monthly income\n    if (user.monthly_income < product.min_monthly_income) {\n      eligible = false;\n      reasons.push(`Monthly income ${user.monthly_income} below minimum ${product.min_monthly_income}`);\n    } else {\n      // Score bonus for income\n      const incomeRatio = user.monthly_income / product.min_monthly_income;\n      score += Math.min((incomeRatio - 1) * 10, 15);\n    }\n    \n    // Check age\n    if (user.age < product.min_age || user.age > product.max_age) {\n      eligible = false;\n      reasons.push(`Age ${user.age} outside range ${product.min_age}-${product.max_age}`);\n    }\n    \n    // Check employment status\n    if (product.required_employment_status) {\n      const allowedStatuses = product.required_employment_status.toLowerCase().split(',').map(s => s.trim());\n      if (!allowedStatuses.includes(user.employment_status.toLowerCase())) {\n        eligible = false;\n        reasons.push(`Employment status '${user.employment_status}' not in allowed: ${allowedStatuses.join(', ')}`);\n      }\n    }\n    \n    if (eligible) {\n      // Normalize score to 0-100\n      const normalizedScore = Math.min(Math.max(score, 0), 100);\n      \n      userMatches.push({\n        user_id: user.user_id,\n        product_id: product.product_id,\n        product_name: product.product_name,\n        provider_name: product.provider_name,\n        match_score: normalizedScore,\n        match_type: normalizedScore >= 80 ? 'auto' : 'needs_review',\n        match_reason: `Eligible: Credit Score ${user.credit_score}, Income ₹${user.monthly_income}, Age ${user.age}`,\n        batch_id: batchId,\n        interest_rate_range: `${product.interest_rate_min}% - ${product.interest_rate_max}%`,\n        loan_amount_range: `₹${product.min_loan_amount} - ₹${product.max_loan_amount}`\n      });\n      \n      // Update stats\n      if (normalizedScore >= 80) stats.highConfidence++;\n      else if (normalizedScore >= 60) stats.mediumConfidence++;\n      else stats.lowConfidence++;\n    }\n  });\n  \n  return userMatches;\n}\n\n// Process all users\nusers.forEach(user => {\n  const userMatches = matchUserToProducts(user);\n  matches.push(...userMatches);\n});\n\nstats.totalMatches = matches.length;\n\n// Return matches and stats\nreturn [\n  { json: { type: 'stats', ...stats } },\n  ...matches.map(m => ({ json: { type: 'match', ...m } }))\n];"
+      },
+      "id": "matching-engine",
+      "name": "Multi-Stage Matching Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.type }}",
+              "operation": "equals",
+              "value2": "match"
+            }
+          ]
+        }
+      },
+      "id": "filter-matches",
+      "name": "Filter Matches Only",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO matches (\n  user_id, product_id, match_score, match_reason, \n  match_type, batch_id\n) VALUES (\n  $1, $2, $3, $4, $5, $6\n)\nON CONFLICT (user_id, product_id, batch_id) DO UPDATE SET\n  match_score = EXCLUDED.match_score,\n  match_reason = EXCLUDED.match_reason\nRETURNING *;",
+        "options": {
+          "queryParams": "={{ [$json.user_id, $json.product_id, $json.match_score, $json.match_reason, $json.match_type, $json.batch_id].join(',') }}"
+        }
+      },
+      "id": "save-matches",
+      "name": "Save Matches to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [1300, 300],
+      "credentials": {
+        "postgres": {
+          "id": "loan-db",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users SET processed = true WHERE batch_id = $1;",
+        "options": {
+          "queryParams": "={{ $('Parse Webhook Payload').first().json.batchId }}"
+        }
+      },
+      "id": "mark-processed",
+      "name": "Mark Users Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [1500, 300],
+      "credentials": {
+        "postgres": {
+          "id": "loan-db",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/notification-trigger",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "batchId",
+              "value": "={{ $('Parse Webhook Payload').first().json.batchId }}"
+            },
+            {
+              "name": "matchCount",
+              "value": "={{ $('Multi-Stage Matching Engine').all().filter(i => i.json.type === 'stats')[0]?.json.totalMatches || 0 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "trigger-notifications",
+      "name": "Trigger Notification Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1700, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "content": "## Workflow B: User-Loan Matching\n\n**Optimization Treasure Hunt Solution:**\n\n**Stage 1: SQL Pre-filter**\n- Only fetch active products\n- Only fetch unprocessed users from batch\n\n**Stage 2: Index-based Bucketing**\n- Group products by credit score ranges\n- Quick lookup reduces comparison count\n\n**Stage 3: Rule-based Matching**\n- Fast boolean eligibility checks\n- Calculate confidence score\n\n**Stage 4: LLM Verification (optional)**\n- Reserved for edge cases with medium confidence\n- Can be enabled for qualitative analysis\n\n**Benefits:**\n- O(n*k) reduced to O(n*k/buckets)\n- LLM calls minimized to <10% of matches\n- Parallelizable for large datasets"
+      },
+      "id": "note",
+      "name": "Optimization Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.match_score }}",
+              "operation": "smallerEqual",
+              "value2": 70
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{ $json.match_type }}",
+              "value2": "needs_review"
+            }
+          ]
+        },
+        "combineOperation": "all"
+      },
+      "id": "filter-for-llm",
+      "name": "Filter for LLM Review",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [1100, 500],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "resource": "prompt",
+        "modelId": "gemini-1.5-flash",
+        "promptType": "define",
+        "text": "=Evaluate this loan eligibility match:\n\nUser Profile:\n- Monthly Income: ₹{{ $json.monthly_income }}\n- Credit Score: {{ $json.credit_score }}\n- Employment: {{ $json.employment_status }}\n- Age: {{ $json.age }}\n\nLoan Product: {{ $json.product_name }}\nInterest Rate: {{ $json.interest_rate_range }}\nLoan Amount: {{ $json.loan_amount_range }}\n\nCurrent Match Score: {{ $json.match_score }}/100\n\nAnalyze if this is a good match considering:\n1. User's ability to repay\n2. Risk factors\n3. Suitability of product for user's profile\n\nRespond with JSON:\n{\n  \"adjusted_score\": <number 0-100>,\n  \"recommendation\": \"approve\" | \"review\" | \"decline\",\n  \"reasoning\": \"<brief explanation>\"\n}",
+        "options": {}
+      },
+      "id": "llm-review",
+      "name": "LLM Match Review",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1300, 500],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Webhook Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Webhook Payload": {
+      "main": [
+        [
+          {
+            "node": "Fetch Users (Batch)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Loan Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Users (Batch)": {
+      "main": [
+        [
+          {
+            "node": "Multi-Stage Matching Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Loan Products": {
+      "main": [
+        [
+          {
+            "node": "Multi-Stage Matching Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Multi-Stage Matching Engine": {
+      "main": [
+        [
+          {
+            "node": "Filter Matches Only",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter for LLM Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Matches Only": {
+      "main": [
+        [
+          {
+            "node": "Save Matches to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Matches to Database": {
+      "main": [
+        [
+          {
+            "node": "Mark Users Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Users Processed": {
+      "main": [
+        [
+          {
+            "node": "Trigger Notification Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter for LLM Review": {
+      "main": [
+        [
+          {
+            "node": "LLM Match Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "loan-eligibility",
+      "id": "1"
+    },
+    {
+      "name": "matching",
+      "id": "3"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1"
+}

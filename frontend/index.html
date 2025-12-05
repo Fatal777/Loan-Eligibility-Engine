@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loan Eligibility Engine - CSV Upload</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏦 Loan Eligibility Engine</h1>
+            <p class="subtitle">Upload user data to find matching loan products</p>
+        </header>
+
+        <main>
+            <div class="upload-card">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <h2>Upload User CSV</h2>
+                    <p>Drag & drop your CSV file here, or click to browse</p>
+                    <input type="file" id="fileInput" accept=".csv" hidden>
+                    <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
+                        Browse Files
+                    </button>
+                </div>
+
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <div class="file-details">
+                        <span class="file-icon">📄</span>
+                        <div>
+                            <p class="file-name" id="fileName"></p>
+                            <p class="file-size" id="fileSize"></p>
+                        </div>
+                        <button class="remove-btn" id="removeFile">✕</button>
+                    </div>
+                </div>
+
+                <div class="progress-container" id="progressContainer" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p class="progress-text" id="progressText">Uploading...</p>
+                </div>
+
+                <button class="upload-btn" id="uploadBtn" disabled>
+                    <span class="btn-text">Upload & Process</span>
+                    <span class="btn-loader" style="display: none;"></span>
+                </button>
+            </div>
+
+            <div class="status-card" id="statusCard" style="display: none;">
+                <div class="status-header">
+                    <span class="status-icon" id="statusIcon">✓</span>
+                    <h3 id="statusTitle">Upload Successful!</h3>
+                </div>
+                <div class="status-details" id="statusDetails">
+                    <p>Your file has been uploaded and is being processed.</p>
+                    <p>Batch ID: <code id="batchId"></code></p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h3>📋 CSV Format Requirements</h3>
+                <table class="format-table">
+                    <thead>
+                        <tr>
+                            <th>Column</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>user_id</td><td>String</td><td>Unique user identifier</td></tr>
+                        <tr><td>email</td><td>String</td><td>User email address</td></tr>
+                        <tr><td>monthly_income</td><td>Number</td><td>Monthly income in INR</td></tr>
+                        <tr><td>credit_score</td><td>Number</td><td>Credit score (300-900)</td></tr>
+                        <tr><td>employment_status</td><td>String</td><td>salaried / self-employed</td></tr>
+                        <tr><td>age</td><td>Number</td><td>Age (18-100)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <footer>
+            <p>Loan Eligibility Engine © 2024</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

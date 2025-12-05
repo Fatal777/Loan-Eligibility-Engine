@@ -1,0 +1,170 @@
+service: loan-eligibility-engine
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.11
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  memorySize: 256
+  timeout: 30
+  
+  environment:
+    STAGE: ${self:provider.stage}
+    DB_HOST: ${env:DB_HOST, ''}
+    DB_PORT: ${env:DB_PORT, '5432'}
+    DB_NAME: ${env:DB_NAME, 'loan_eligibility'}
+    DB_USER: ${env:DB_USER, ''}
+    DB_PASSWORD: ${env:DB_PASSWORD, ''}
+    N8N_WEBHOOK_URL: ${env:N8N_WEBHOOK_URL, ''}
+    S3_BUCKET: ${self:custom.bucketName}
+  
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:ListBucket
+          Resource:
+            - arn:aws:s3:::${self:custom.bucketName}
+            - arn:aws:s3:::${self:custom.bucketName}/*
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - rds:DescribeDBInstances
+          Resource: '*'
+
+custom:
+  bucketName: loan-eligibility-uploads-${self:provider.stage}-${aws:accountId}
+  pythonRequirements:
+    dockerizePip: non-linux
+    layer: true
+
+plugins:
+  - serverless-python-requirements
+
+package:
+  individually: true
+  patterns:
+    - '!node_modules/**'
+    - '!.git/**'
+    - '!frontend/**'
+    - '!n8n/**'
+    - '!docs/**'
+    - '!tests/**'
+    - '!*.md'
+
+functions:
+  # Generate presigned URL for secure CSV upload
+  getUploadUrl:
+    handler: src/handlers/upload.get_presigned_url
+    events:
+      - http:
+          path: /upload/presigned-url
+          method: get
+          cors: true
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  # Process CSV file when uploaded to S3 (Event-driven pattern)
+  processCSV:
+    handler: src/handlers/process_csv.handler
+    timeout: 300
+    memorySize: 512
+    events:
+      - s3:
+          bucket: ${self:custom.bucketName}
+          event: s3:ObjectCreated:*
+          rules:
+            - prefix: uploads/
+            - suffix: .csv
+          existing: true
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  # Webhook endpoint to trigger n8n matching workflow
+  triggerMatching:
+    handler: src/handlers/trigger_matching.handler
+    events:
+      - http:
+          path: /trigger/matching
+          method: post
+          cors: true
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  # Health check endpoint
+  healthCheck:
+    handler: src/handlers/health.handler
+    events:
+      - http:
+          path: /health
+          method: get
+          cors: true
+
+resources:
+  Resources:
+    # S3 Bucket for CSV uploads
+    UploadsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.bucketName}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+              AllowedOrigins:
+                - '*'
+              MaxAge: 3000
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldUploads
+              Status: Enabled
+              ExpirationInDays: 30
+              Prefix: uploads/
+
+    # S3 Bucket Policy
+    UploadsBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref UploadsBucket
+        PolicyDocument:
+          Statement:
+            - Sid: EnforceTLS
+              Effect: Deny
+              Principal: '*'
+              Action: s3:*
+              Resource:
+                - !GetAtt UploadsBucket.Arn
+                - !Sub '${UploadsBucket.Arn}/*'
+              Condition:
+                Bool:
+                  aws:SecureTransport: 'false'
+
+  Outputs:
+    UploadsBucketName:
+      Description: Name of the S3 bucket for CSV uploads
+      Value: !Ref UploadsBucket
+      Export:
+        Name: ${self:service}-${self:provider.stage}-UploadsBucket
+    
+    ApiGatewayUrl:
+      Description: API Gateway URL
+      Value: !Sub 'https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}'
