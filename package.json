@@ -14,10 +14,9 @@
     "n8n:stop": "docker-compose down",
     "n8n:logs": "docker-compose logs -f n8n"
   },
-  "dependencies": {},
   "devDependencies": {
     "serverless": "^3.38.0",
-    "serverless-python-requirements": "^6.0.0"
+    "serverless-python-requirements": "^6.1.2"
   },
   "keywords": [
     "loan",
