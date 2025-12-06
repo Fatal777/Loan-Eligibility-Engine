@@ -1,0 +1,260 @@
+{
+  "name": "Workflow B - Scalable Matching",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-matching",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (After CSV Upload)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "trigger-matching"
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 480]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Check how many unprocessed users remain\nSELECT COUNT(*) as unprocessed_count FROM users WHERE processed = false;"
+      },
+      "id": "check-remaining",
+      "name": "Check Unprocessed Users",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [500, 380],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ parseInt($json.unprocessed_count) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-users",
+      "name": "Has Users to Process?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [750, 380]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- SCALABLE: Process ALL users in SQL, no arbitrary limits\n-- The database handles the heavy lifting efficiently\n\nWITH batch_users AS (\n  -- Get next batch of unprocessed users\n  SELECT user_id FROM users \n  WHERE processed = false \n  LIMIT 500\n  FOR UPDATE SKIP LOCKED  -- Prevents race conditions\n),\neligible_matches AS (\n  SELECT \n    u.user_id,\n    u.name as user_name,\n    u.email,\n    u.credit_score,\n    u.monthly_income,\n    u.employment_status,\n    u.age,\n    p.product_id,\n    p.product_name,\n    p.provider_name,\n    p.interest_rate_min,\n    p.interest_rate_max,\n    -- Calculate match score\n    CASE \n      WHEN u.credit_score >= 800 THEN 30\n      WHEN u.credit_score >= 750 THEN 25\n      WHEN u.credit_score >= 700 THEN 20\n      WHEN u.credit_score >= 650 THEN 15\n      ELSE 10\n    END +\n    CASE \n      WHEN u.monthly_income >= p.min_monthly_income * 3 THEN 25\n      WHEN u.monthly_income >= p.min_monthly_income * 2 THEN 20\n      WHEN u.monthly_income >= p.min_monthly_income * 1.5 THEN 15\n      ELSE 10\n    END +\n    CASE\n      WHEN u.age >= 25 AND u.age <= 50 THEN 20\n      ELSE 15\n    END +\n    CASE\n      WHEN p.required_employment_status ILIKE '%' || u.employment_status || '%' THEN 25\n      ELSE 10\n    END as match_score,\n    'Credit: ' || u.credit_score || ', Income: ₹' || u.monthly_income as match_reason\n  FROM users u\n  JOIN batch_users bu ON bu.user_id = u.user_id\n  CROSS JOIN loan_products p\n  WHERE p.is_active = true\n    AND u.credit_score >= p.min_credit_score\n    AND u.credit_score <= p.max_credit_score\n    AND u.monthly_income >= p.min_monthly_income\n    AND u.age >= p.min_age\n    AND u.age <= p.max_age\n),\nranked_matches AS (\n  -- Keep top 3 products per user\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY match_score DESC) as rank\n  FROM eligible_matches\n  WHERE match_score >= 50\n),\ninserted_matches AS (\n  -- Insert matches in one operation\n  INSERT INTO matches (user_id, product_id, match_score, match_reason, batch_id, status, match_type)\n  SELECT \n    user_id, product_id, match_score, match_reason,\n    'BATCH_' || TO_CHAR(NOW(), 'YYYYMMDDHH24MISS'),\n    'pending_notification', 'auto'\n  FROM ranked_matches\n  WHERE rank <= 3\n  ON CONFLICT (user_id, product_id, batch_id) DO NOTHING\n  RETURNING user_id\n),\nupdated_users AS (\n  -- Mark users as processed\n  UPDATE users SET processed = true\n  WHERE user_id IN (SELECT user_id FROM batch_users)\n  RETURNING user_id\n)\nSELECT \n  (SELECT COUNT(DISTINCT user_id) FROM inserted_matches) as users_matched,\n  (SELECT COUNT(*) FROM inserted_matches) as matches_created,\n  (SELECT COUNT(*) FROM updated_users) as users_processed,\n  (SELECT COUNT(*) FROM users WHERE processed = false) as remaining_users;"
+      },
+      "id": "sql-match-batch",
+      "name": "SQL: Match & Save Batch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\n\nreturn [{\n  json: {\n    users_matched: result.users_matched,\n    matches_created: result.matches_created,\n    users_processed: result.users_processed,\n    remaining_users: parseInt(result.remaining_users),\n    should_continue: parseInt(result.remaining_users) > 0,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-result",
+      "name": "Parse Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue-check",
+              "leftValue": "={{ $json.should_continue }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "should-continue",
+      "name": "More Users?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Small delay to prevent overwhelming the database\nawait new Promise(resolve => setTimeout(resolve, 100));\nreturn $input.all();"
+      },
+      "id": "loop-delay",
+      "name": "Brief Delay",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL || 'http://localhost:5678' }}/webhook/trigger-notification",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "trigger-notification",
+      "name": "Trigger Workflow C",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1750, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Final stats\nSELECT \n  (SELECT COUNT(*) FROM users WHERE processed = true) as total_processed,\n  (SELECT COUNT(*) FROM users WHERE processed = false) as total_remaining,\n  (SELECT COUNT(*) FROM matches WHERE created_at > NOW() - INTERVAL '1 hour') as matches_this_run,\n  (SELECT COUNT(DISTINCT user_id) FROM matches WHERE created_at > NOW() - INTERVAL '1 hour') as users_matched_this_run;"
+      },
+      "id": "final-stats",
+      "name": "Get Final Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'completed',\n    message: 'All users processed!',\n    stats: {\n      total_users_processed: stats.total_processed,\n      total_remaining: stats.total_remaining,\n      matches_created_this_run: stats.matches_this_run,\n      users_matched_this_run: stats.users_matched_this_run\n    },\n    next_step: 'Workflow C triggered for notifications',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "complete-summary",
+      "name": "Complete Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2500, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No users to process\nreturn [{\n  json: {\n    status: 'no_users',\n    message: 'No unprocessed users found',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "no-users",
+      "name": "No Users Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 500]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow B: SCALABLE Matching\n\n### How It's Scalable:\n\n**1. Self-Looping**\n- Processes 500 users per batch\n- Automatically loops until ALL done\n- No manual re-runs needed\n\n**2. Database-Optimized**\n- All matching logic in SQL (fast!)\n- `FOR UPDATE SKIP LOCKED` prevents race conditions\n- Single transaction per batch\n\n**3. Auto-Triggers Next Step**\n- Calls Workflow C webhook when done\n- Fully automated pipeline\n\n**4. Handles Any Volume**\n- 1,000 users? Same workflow\n- 100,000 users? Same workflow\n- 1,000,000 users? Same workflow\n\n### The Loop:\n```\nCheck remaining → Match 500 → \nMore users? → Yes → Loop back\n            → No  → Trigger Workflow C\n```"
+      },
+      "id": "note",
+      "name": "Scalability Explained",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 60]
+    }
+  ],
+  "connections": {
+    "Webhook (After CSV Upload)": {
+      "main": [[{"node": "Check Unprocessed Users", "type": "main", "index": 0}]]
+    },
+    "Manual Trigger": {
+      "main": [[{"node": "Check Unprocessed Users", "type": "main", "index": 0}]]
+    },
+    "Check Unprocessed Users": {
+      "main": [[{"node": "Has Users to Process?", "type": "main", "index": 0}]]
+    },
+    "Has Users to Process?": {
+      "main": [
+        [{"node": "SQL: Match & Save Batch", "type": "main", "index": 0}],
+        [{"node": "No Users Response", "type": "main", "index": 0}]
+      ]
+    },
+    "SQL: Match & Save Batch": {
+      "main": [[{"node": "Parse Result", "type": "main", "index": 0}]]
+    },
+    "Parse Result": {
+      "main": [[{"node": "More Users?", "type": "main", "index": 0}]]
+    },
+    "More Users?": {
+      "main": [
+        [{"node": "Brief Delay", "type": "main", "index": 0}],
+        [{"node": "Trigger Workflow C", "type": "main", "index": 0}]
+      ]
+    },
+    "Brief Delay": {
+      "main": [[{"node": "Check Unprocessed Users", "type": "main", "index": 0}]]
+    },
+    "Trigger Workflow C": {
+      "main": [[{"node": "Get Final Stats", "type": "main", "index": 0}]]
+    },
+    "Get Final Stats": {
+      "main": [[{"node": "Complete Summary", "type": "main", "index": 0}]]
+    },
+    "Complete Summary": {
+      "main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]
+    },
+    "No Users Response": {
+      "main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

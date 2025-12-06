@@ -5,8 +5,8 @@
 -- with all required tables and indexes.
 -- =====================================================
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Note: Using gen_random_uuid() which is built-in to PostgreSQL 13+
+-- instead of uuid-ossp extension
 
 -- =====================================================
 -- USERS TABLE
@@ -78,7 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_loan_products_last_updated ON loan_products(last_
 -- =====================================================
 CREATE TABLE IF NOT EXISTS matches (
     id SERIAL PRIMARY KEY,
-    match_id UUID DEFAULT uuid_generate_v4() UNIQUE,
+    match_id UUID DEFAULT gen_random_uuid() UNIQUE,
     user_id VARCHAR(255) NOT NULL REFERENCES users(user_id),
     product_id VARCHAR(255) NOT NULL REFERENCES loan_products(product_id),
     match_score DECIMAL(5, 2), -- Confidence score 0-100
@@ -105,7 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at);
 -- =====================================================
 CREATE TABLE IF NOT EXISTS crawl_logs (
     id SERIAL PRIMARY KEY,
-    crawl_id UUID DEFAULT uuid_generate_v4() UNIQUE,
+    crawl_id UUID DEFAULT gen_random_uuid() UNIQUE,
     source_website VARCHAR(255) NOT NULL,
     source_url TEXT,
     status VARCHAR(50) NOT NULL, -- 'success', 'failed', 'partial'
@@ -129,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_crawl_logs_started_at ON crawl_logs(started_at);
 -- =====================================================
 CREATE TABLE IF NOT EXISTS notification_logs (
     id SERIAL PRIMARY KEY,
-    notification_id UUID DEFAULT uuid_generate_v4() UNIQUE,
+    notification_id UUID DEFAULT gen_random_uuid() UNIQUE,
     user_id VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL,
     subject VARCHAR(500),

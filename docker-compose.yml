@@ -77,10 +77,13 @@ services:
     image: postgres:15-alpine
     container_name: n8n-postgres
     restart: unless-stopped
+    ports:
+      - "5432:5432"
     environment:
       - POSTGRES_USER=${N8N_DB_USER:-n8n}
       - POSTGRES_PASSWORD=${N8N_DB_PASSWORD:-n8n_password}
       - POSTGRES_DB=${N8N_DB_NAME:-n8n}
+      - POSTGRES_MULTIPLE_DATABASES=n8n,loan_eligibility
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro

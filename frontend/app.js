@@ -6,9 +6,10 @@
 
 // Configuration - Update these values after deployment
 const CONFIG = {
-    API_BASE_URL: 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev',
-    // For local testing, you can use:
-    // API_BASE_URL: 'http://localhost:3000',
+    // For local testing:
+    API_BASE_URL: 'http://localhost:3000',
+    // For AWS deployment, use:
+    // API_BASE_URL: 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev',
 };
 
 // DOM Elements
@@ -123,24 +124,44 @@ async function uploadFile() {
         progressContainer.style.display = 'block';
         statusCard.style.display = 'none';
 
-        // Step 1: Get presigned URL
-        updateProgress(10, 'Getting upload URL...');
-        const presignedResponse = await getPresignedUrl(selectedFile.name);
-        
-        if (!presignedResponse.success) {
-            throw new Error(presignedResponse.error || 'Failed to get upload URL');
+        // Read file content
+        updateProgress(10, 'Reading file...');
+        const csvContent = await readFileAsText(selectedFile);
+
+        // Upload to local API
+        updateProgress(40, 'Processing CSV...');
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        const response = await fetch(`${CONFIG.API_BASE_URL}/upload-csv`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `HTTP error ${response.status}`);
         }
 
-        // Step 2: Upload file to S3
-        updateProgress(30, 'Uploading to cloud storage...');
-        await uploadToS3(presignedResponse.presignedUrl, selectedFile);
+        const result = await response.json();
+
+        // Step 2: Trigger matching
+        updateProgress(70, 'Running matching algorithm...');
+        const matchResponse = await fetch(`${CONFIG.API_BASE_URL}/trigger-matching`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batch_id: result.batch_id })
+        });
+
+        const matchResult = await matchResponse.json();
 
         // Step 3: Show success
-        updateProgress(100, 'Upload complete!');
+        updateProgress(100, 'Complete!');
         
         showSuccess({
-            uploadId: presignedResponse.uploadId,
-            key: presignedResponse.key
+            batchId: result.batch_id,
+            usersAdded: result.users_added,
+            matchesCreated: matchResult.matches_created || 0
         });
 
     } catch (error) {
@@ -151,6 +172,15 @@ async function uploadFile() {
         btnLoader.style.display = 'none';
         uploadBtn.disabled = false;
     }
+}
+
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+    });
 }
 
 async function getPresignedUrl(filename) {
@@ -211,9 +241,10 @@ function showSuccess(data) {
     statusIcon.textContent = '✓';
     statusTitle.textContent = 'Upload Successful!';
     statusDetails.innerHTML = `
-        <p>Your file has been uploaded and is being processed.</p>
-        <p>The matching workflow will run automatically.</p>
-        <p style="margin-top: 10px;">Upload ID: <code>${data.uploadId}</code></p>
+        <p>Your file has been uploaded and processed.</p>
+        <p><strong>${data.usersAdded}</strong> users added, <strong>${data.matchesCreated}</strong> matches found!</p>
+        <p style="margin-top: 10px;">Batch ID: <code>${data.batchId}</code></p>
+        <p style="margin-top: 10px;"><a href="${CONFIG.API_BASE_URL}/matches" target="_blank">View Matches →</a></p>
     `;
     
     // Clear file selection after successful upload

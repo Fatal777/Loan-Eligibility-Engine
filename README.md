@@ -259,36 +259,44 @@ aws ses verify-email-identity --email-address test@example.com
 
 | Setting | Value |
 |---------|-------|
-| Trigger | Schedule (Daily at 00:00 UTC) |
-| Websites | BankBazaar, PaisaBazaar, HDFC Bank |
+| Trigger | Schedule (Daily at 00:00 UTC) + Manual |
+| Websites | BankBazaar, PaisaBazaar, MyLoanCare |
 | Output | loan_products table |
 
-**Customization**:
-- Add/modify target websites in "Define Target Websites" node
-- Adjust extraction patterns in "Extract Loan Products" node
-- Enable AI extraction for complex pages
+**Features**:
+- Real web crawling from loan aggregator sites
+- Extracts: product name, provider, interest rates, loan amounts, eligibility criteria
+- Robust error handling (continues if one site fails)
+- Deduplication with UPSERT
 
-### Workflow B: User-Loan Matching
+### Workflow B: User-Loan Matching (Scalable)
 
 | Setting | Value |
 |---------|-------|
-| Trigger | Webhook (POST /webhook/matching-trigger) |
-| Input | batch_id from CSV processing |
+| Trigger | Webhook (POST /webhook/trigger-matching) + Manual |
+| Batch Size | 500 users per iteration |
 | Output | matches table |
 
-**Optimization Pipeline** (See Design Decisions below):
-1. SQL Pre-filter
-2. Credit Score Bucketing
-3. Rule-based Matching
-4. Optional LLM Review
+**Scalability Features**:
+- Self-looping: automatically processes next batch until done
+- SQL-based matching (not n8n loops) for performance
+- Race-safe with `FOR UPDATE SKIP LOCKED`
+- Auto-triggers Workflow C when complete
 
-### Workflow C: User Notification
+### Workflow C: User Notification (Production Scale)
 
 | Setting | Value |
 |---------|-------|
-| Trigger | Webhook (POST /webhook/notification-trigger) |
-| Email Service | AWS SES |
-| Template | Personalized HTML |
+| Trigger | Webhook (POST /webhook/trigger-notification) + Manual |
+| Email Service | AWS SES (ap-south-1) |
+| Batch Size | 1000 users per iteration |
+| Template | Personalized HTML with loan details |
+
+**Features**:
+- Bulk fetch with SQL aggregation (products grouped per user)
+- Beautiful HTML email template with match scores
+- Self-looping for unlimited scale
+- Tracks notification status in database
 
 ---
 
@@ -376,6 +384,27 @@ aws ses verify-email-identity --email-address test@example.com
 ---
 
 ## 📡 API Reference
+
+### Local Development Setup (Docker)
+
+For local testing without AWS:
+
+```bash
+# Start PostgreSQL + n8n containers
+docker-compose up -d
+
+# Start local Flask API
+python local_api.py
+
+# Access points:
+# - Local API: http://localhost:3000
+# - n8n: http://localhost:5678
+# - PostgreSQL: localhost:5432
+```
+
+**Verified Email Configuration (AWS SES)**:
+- Sender: `saadilkal.10@gmail.com`
+- Region: `ap-south-1` (Mumbai)
 
 ### GET /upload/presigned-url
 

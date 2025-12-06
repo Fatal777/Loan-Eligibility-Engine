@@ -1,0 +1,257 @@
+{
+  "name": "Workflow C - Production Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-notification",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (From Workflow B)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "trigger-notification"
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 480]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- PRODUCTION: Fetch ALL pending users with their products in ONE query\n-- No looping needed - SQL does the heavy lifting\n\nSELECT \n  u.user_id,\n  u.name as user_name,\n  u.email,\n  u.credit_score,\n  u.monthly_income,\n  json_agg(\n    json_build_object(\n      'match_id', m.match_id,\n      'product_name', p.product_name,\n      'provider_name', p.provider_name,\n      'interest_rate_min', p.interest_rate_min,\n      'interest_rate_max', p.interest_rate_max,\n      'min_loan_amount', p.min_loan_amount,\n      'max_loan_amount', p.max_loan_amount,\n      'match_score', m.match_score\n    ) ORDER BY m.match_score DESC\n  ) as products,\n  COUNT(m.match_id) as product_count\nFROM users u\nJOIN matches m ON m.user_id = u.user_id \n  AND m.status = 'pending_notification' \n  AND m.notification_sent = false\nJOIN loan_products p ON p.product_id = m.product_id\nGROUP BY u.user_id, u.name, u.email, u.credit_score, u.monthly_income\nLIMIT 1000;"
+      },
+      "id": "fetch-all",
+      "name": "Fetch All Pending (Bulk)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [500, 380],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate emails for ALL users at once\nconst users = $input.all();\n\nif (users.length === 0 || !users[0].json.user_id) {\n  return [{ json: { status: 'no_pending', count: 0 } }];\n}\n\nconst emails = users.map(user => {\n  const data = user.json;\n  const products = typeof data.products === 'string' ? JSON.parse(data.products) : data.products;\n  \n  let productHtml = products.map(p => {\n    const color = p.match_score >= 80 ? '#22c55e' : p.match_score >= 60 ? '#eab308' : '#f97316';\n    return `<tr>\n      <td style=\"padding:10px;border-bottom:1px solid #e2e8f0;\"><strong>${p.product_name}</strong><br><span style=\"color:#64748b;font-size:12px;\">${p.provider_name}</span></td>\n      <td style=\"padding:10px;border-bottom:1px solid #e2e8f0;text-align:center;\">${p.interest_rate_min}%-${p.interest_rate_max}%</td>\n      <td style=\"padding:10px;border-bottom:1px solid #e2e8f0;text-align:center;\">₹${(p.min_loan_amount/100000).toFixed(1)}L-₹${(p.max_loan_amount/100000).toFixed(1)}L</td>\n      <td style=\"padding:10px;border-bottom:1px solid #e2e8f0;text-align:center;\"><span style=\"background:${color};color:white;padding:3px 8px;border-radius:10px;font-size:12px;\">${p.match_score}%</span></td>\n    </tr>`;\n  }).join('');\n\n  const html = `<!DOCTYPE html><html><body style=\"font-family:Arial,sans-serif;background:#f8fafc;margin:0;padding:20px;\"><div style=\"max-width:600px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);\"><div style=\"background:linear-gradient(135deg,#3b82f6,#1d4ed8);padding:24px;text-align:center;\"><h1 style=\"color:white;margin:0;\">🎉 Loan Matches Found!</h1></div><div style=\"padding:24px;\"><p>Hi <strong>${data.user_name||'Customer'}</strong>,</p><p>Based on your profile (Credit Score: <strong>${data.credit_score}</strong>, Income: <strong>₹${Number(data.monthly_income).toLocaleString()}</strong>), we found <strong>${products.length}</strong> matching loans:</p><table style=\"width:100%;border-collapse:collapse;margin:20px 0;\"><thead><tr style=\"background:#f1f5f9;\"><th style=\"padding:10px;text-align:left;\">Product</th><th style=\"padding:10px;text-align:center;\">Interest</th><th style=\"padding:10px;text-align:center;\">Amount</th><th style=\"padding:10px;text-align:center;\">Match</th></tr></thead><tbody>${productHtml}</tbody></table><div style=\"text-align:center;margin:24px 0;\"><a href=\"#\" style=\"background:#3b82f6;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;\">Apply Now</a></div><p style=\"color:#94a3b8;font-size:12px;margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;\">Automated email from Loan Eligibility Engine.</p></div></div></body></html>`;\n\n  return {\n    json: {\n      user_id: data.user_id,\n      email: data.email,\n      subject: `🎉 ${products.length} Personal Loan${products.length > 1 ? 's' : ''} Matched For You!`,\n      html: html\n    }\n  };\n});\n\nreturn emails;"
+      },
+      "id": "generate-emails",
+      "name": "Generate All Emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://email.ap-south-1.amazonaws.com/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "Action", "value": "SendEmail"},
+            {"name": "Version", "value": "2010-12-01"},
+            {"name": "Source", "value": "saadilkal.10@gmail.com"},
+            {"name": "Destination.ToAddresses.member.1", "value": "={{ $json.email }}"},
+            {"name": "Message.Subject.Data", "value": "={{ $json.subject }}"},
+            {"name": "Message.Body.Html.Data", "value": "={{ $json.html }}"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "aws-ses",
+      "name": "Send via AWS SES",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 300],
+      "disabled": false,
+      "credentials": {
+        "aws": {
+          "id": "2",
+          "name": "AWS (IAM) account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log email for testing\nconst email = $json;\nconsole.log(`📧 To: ${email.email}`);\nreturn [{ json: { ...email, logged: true } }];"
+      },
+      "id": "log-email",
+      "name": "Log Email (Test)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 460]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- BULK UPDATE: Mark ALL processed users as notified in ONE query\nUPDATE matches SET \n  notification_sent = true,\n  notification_sent_at = CURRENT_TIMESTAMP,\n  status = 'notified',\n  notified_at = CURRENT_TIMESTAMP\nWHERE user_id = '{{ $json.user_id }}'\n  AND status = 'pending_notification'\nRETURNING match_id;"
+      },
+      "id": "mark-notified",
+      "name": "Mark Notified",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 380],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "aggregate",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1500, 380]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Check if more pending\nSELECT \n  (SELECT COUNT(DISTINCT user_id) FROM matches WHERE status = 'pending_notification' AND notification_sent = false) as remaining,\n  (SELECT COUNT(*) FROM matches WHERE notification_sent = true) as total_notified;"
+      },
+      "id": "check-more",
+      "name": "Check Remaining",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 380],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "more-check",
+              "leftValue": "={{ parseInt($json.remaining) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-more",
+      "name": "More Pending?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Continue to next batch\nreturn [{ json: { continue: true } }];"
+      },
+      "id": "continue",
+      "name": "Continue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $('Check Remaining').first().json;\n\nreturn [{\n  json: {\n    status: 'completed',\n    message: 'All notifications sent!',\n    total_notified: stats.total_notified,\n    remaining: stats.remaining,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "done",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 460]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2500, 380]
+    },
+    {
+      "parameters": {
+        "content": "## Production-Scale Notification\n\n### Key Optimizations:\n\n**1. Bulk Fetch (1000 at a time)**\n- Single SQL query fetches 1000 users\n- Products already grouped per user\n- No individual user fetching\n\n**2. Parallel Email Generation**\n- All emails generated in one Code node\n- n8n processes items in parallel\n\n**3. Bulk Database Updates**\n- Each user marked as notified\n- Aggregated at the end\n\n**4. Auto-Loop for Large Sets**\n- If > 1000 pending, loops back\n- Processes in chunks of 1000\n\n### Performance:\n- 9,000 users = ~9 iterations (not 180!)\n- ~10x faster than 50-batch approach\n\n### For TRUE Production:\n- Use AWS SQS + Lambda\n- SES supports 14 emails/second\n- Lambda can parallelize infinitely"
+      },
+      "id": "note",
+      "name": "Production Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 60]
+    }
+  ],
+  "connections": {
+    "Webhook (From Workflow B)": {
+      "main": [[{"node": "Fetch All Pending (Bulk)", "type": "main", "index": 0}]]
+    },
+    "Manual Trigger": {
+      "main": [[{"node": "Fetch All Pending (Bulk)", "type": "main", "index": 0}]]
+    },
+    "Fetch All Pending (Bulk)": {
+      "main": [[{"node": "Generate All Emails", "type": "main", "index": 0}]]
+    },
+    "Generate All Emails": {
+      "main": [[{"node": "Send via AWS SES", "type": "main", "index": 0}, {"node": "Log Email (Test)", "type": "main", "index": 0}]]
+    },
+    "Send via AWS SES": {
+      "main": [[{"node": "Mark Notified", "type": "main", "index": 0}]]
+    },
+    "Log Email (Test)": {
+      "main": [[{"node": "Mark Notified", "type": "main", "index": 0}]]
+    },
+    "Mark Notified": {
+      "main": [[{"node": "Aggregate Results", "type": "main", "index": 0}]]
+    },
+    "Aggregate Results": {
+      "main": [[{"node": "Check Remaining", "type": "main", "index": 0}]]
+    },
+    "Check Remaining": {
+      "main": [[{"node": "More Pending?", "type": "main", "index": 0}]]
+    },
+    "More Pending?": {
+      "main": [
+        [{"node": "Continue", "type": "main", "index": 0}],
+        [{"node": "Done", "type": "main", "index": 0}]
+      ]
+    },
+    "Continue": {
+      "main": [[{"node": "Fetch All Pending (Bulk)", "type": "main", "index": 0}]]
+    },
+    "Done": {
+      "main": [[{"node": "Respond", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

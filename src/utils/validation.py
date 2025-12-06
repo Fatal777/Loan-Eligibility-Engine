@@ -73,12 +73,17 @@ def validate_employment_status(status: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    valid_statuses = ['salaried', 'self-employed', 'self_employed', 'business', 'professional']
+    # Accept various employment status values
+    valid_statuses = ['salaried', 'self-employed', 'self_employed', 'selfemployed', 
+                      'business', 'professional', 'employed', 'unemployed', 'retired']
     
     if not status:
         return False, "Employment status is required"
     
-    if status.lower().replace('-', '_') not in [s.replace('-', '_') for s in valid_statuses]:
+    normalized = status.lower().replace('-', '').replace('_', '').replace(' ', '')
+    valid_normalized = [s.replace('-', '').replace('_', '') for s in valid_statuses]
+    
+    if normalized not in valid_normalized:
         return False, f"Invalid employment status. Valid options: {', '.join(valid_statuses)}"
     
     return True, ""
