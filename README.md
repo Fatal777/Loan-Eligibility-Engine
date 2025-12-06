@@ -2,6 +2,47 @@
 
 An automated system that ingests user data, discovers personal loan products from public websites, matches users to eligible products, and notifies them via email.
 
+## 🚀 Live AWS Deployment
+
+This project is fully deployed on AWS. Here are the live endpoints:
+
+| Resource | URL/Endpoint |
+|----------|--------------|
+| **API Gateway** | `https://c41a2ucawd.execute-api.ap-south-1.amazonaws.com/dev` |
+| **Health Check** | `GET /health` |
+| **Get Upload URL** | `GET /upload/presigned-url` |
+| **Trigger Matching** | `POST /trigger/matching` |
+| **S3 Bucket** | `loan-eligibility-csv-uploads-202533497839` |
+| **RDS PostgreSQL** | `loan-eligibility-db.chyeiw00stv1.ap-south-1.rds.amazonaws.com` |
+| **n8n Dashboard** | `http://localhost:5678` (self-hosted) |
+| **AWS Region** | `ap-south-1` (Mumbai) |
+
+### Current Database Stats
+
+| Metric | Value |
+|--------|-------|
+| Users Loaded | 10,000 |
+| Loan Products | 8 (from 10 banks) |
+| Matches Created | 25,610 |
+| Batch ID | `20251206173422` |
+
+### Quick Test Commands
+
+```bash
+# Health Check
+curl https://c41a2ucawd.execute-api.ap-south-1.amazonaws.com/dev/health
+
+# Get Presigned URL for Upload
+curl "https://c41a2ucawd.execute-api.ap-south-1.amazonaws.com/dev/upload/presigned-url?filename=test.csv"
+
+# Trigger Matching (POST)
+curl -X POST https://c41a2ucawd.execute-api.ap-south-1.amazonaws.com/dev/trigger/matching \
+  -H "Content-Type: application/json" \
+  -d '{"batchId": "20251206173422"}'
+```
+
+---
+
 ## 📋 Table of Contents
 
 - [Architecture Overview](#architecture-overview)

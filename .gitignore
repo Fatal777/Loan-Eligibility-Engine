@@ -48,6 +48,9 @@ Thumbs.db
 # Test coverage
 .coverage
 htmlcov/
+
+# Temp/test files
+s3-notification.json
 .pytest_cache/
 
 # Temporary files
