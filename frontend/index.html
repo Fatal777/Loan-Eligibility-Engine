@@ -3,87 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loan Eligibility Engine - CSV Upload</title>
+    <title>Loan Eligibility Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🏦 Loan Eligibility Engine</h1>
-            <p class="subtitle">Upload user data to find matching loan products</p>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">◈</span>
+                <span class="logo-text">LoanEngine</span>
+            </div>
+            <nav class="nav">
+                <span class="nav-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span>System Online</span>
+                </span>
+            </nav>
         </header>
 
-        <main>
-            <div class="upload-card">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">📁</div>
-                    <h2>Upload User CSV</h2>
-                    <p>Drag & drop your CSV file here, or click to browse</p>
-                    <input type="file" id="fileInput" accept=".csv" hidden>
-                    <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
-                        Browse Files
+        <!-- Main Content -->
+        <main class="main">
+            <div class="hero">
+                <h1 class="title">Loan Eligibility Engine</h1>
+                <p class="subtitle">Upload user data to automatically match with eligible loan products</p>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <div class="upload-card" id="uploadCard">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                        </div>
+                        <h2 class="upload-title">Upload CSV File</h2>
+                        <p class="upload-desc">Drag and drop your file here, or click to browse</p>
+                        <p class="upload-hint">Supported: .csv files up to 50MB</p>
+                        <input type="file" id="fileInput" accept=".csv" hidden>
+                    </div>
+
+                    <!-- File Selected State -->
+                    <div class="file-preview" id="filePreview" style="display: none;">
+                        <div class="file-icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                            </svg>
+                        </div>
+                        <div class="file-info">
+                            <span class="file-name" id="fileName">filename.csv</span>
+                            <span class="file-size" id="fileSize">0 KB</span>
+                        </div>
+                        <button class="btn-remove" id="removeFile">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="progress-container" id="progressContainer" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="progress-info">
+                            <span id="progressText">Uploading...</span>
+                            <span id="progressPercent">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- Upload Button -->
+                    <button class="btn-upload" id="uploadBtn" disabled>
+                        <span>Upload & Process</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                            <polyline points="12 5 19 12 12 19"/>
+                        </svg>
                     </button>
                 </div>
 
-                <div class="file-info" id="fileInfo" style="display: none;">
-                    <div class="file-details">
-                        <span class="file-icon">📄</span>
-                        <div>
-                            <p class="file-name" id="fileName"></p>
-                            <p class="file-size" id="fileSize"></p>
+                <!-- Status Card -->
+                <div class="status-card" id="statusCard" style="display: none;">
+                    <div class="status-icon success" id="statusIcon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </div>
+                    <h3 class="status-title" id="statusTitle">Processing Complete</h3>
+                    <p class="status-message" id="statusMessage">Your file has been processed successfully.</p>
+                    <div class="status-details" id="statusDetails"></div>
+                    <button class="btn-secondary" id="uploadAnother">Upload Another File</button>
+                </div>
+            </div>
+
+            <!-- Pipeline Info -->
+            <div class="pipeline-section">
+                <h3 class="section-title">How It Works</h3>
+                <div class="pipeline">
+                    <div class="pipeline-step">
+                        <div class="step-number">01</div>
+                        <div class="step-content">
+                            <h4>Upload</h4>
+                            <p>CSV file uploaded to S3</p>
                         </div>
-                        <button class="remove-btn" id="removeFile">✕</button>
+                    </div>
+                    <div class="pipeline-connector"></div>
+                    <div class="pipeline-step">
+                        <div class="step-number">02</div>
+                        <div class="step-content">
+                            <h4>Process</h4>
+                            <p>Data parsed & stored in RDS</p>
+                        </div>
+                    </div>
+                    <div class="pipeline-connector"></div>
+                    <div class="pipeline-step">
+                        <div class="step-number">03</div>
+                        <div class="step-content">
+                            <h4>Match</h4>
+                            <p>AI-powered loan matching</p>
+                        </div>
+                    </div>
+                    <div class="pipeline-connector"></div>
+                    <div class="pipeline-step">
+                        <div class="step-number">04</div>
+                        <div class="step-content">
+                            <h4>Notify</h4>
+                            <p>Email sent via AWS SES</p>
+                        </div>
                     </div>
                 </div>
-
-                <div class="progress-container" id="progressContainer" style="display: none;">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill"></div>
-                    </div>
-                    <p class="progress-text" id="progressText">Uploading...</p>
-                </div>
-
-                <button class="upload-btn" id="uploadBtn" disabled>
-                    <span class="btn-text">Upload & Process</span>
-                    <span class="btn-loader" style="display: none;"></span>
-                </button>
-            </div>
-
-            <div class="status-card" id="statusCard" style="display: none;">
-                <div class="status-header">
-                    <span class="status-icon" id="statusIcon">✓</span>
-                    <h3 id="statusTitle">Upload Successful!</h3>
-                </div>
-                <div class="status-details" id="statusDetails">
-                    <p>Your file has been uploaded and is being processed.</p>
-                    <p>Batch ID: <code id="batchId"></code></p>
-                </div>
-            </div>
-
-            <div class="info-card">
-                <h3>📋 CSV Format Requirements</h3>
-                <table class="format-table">
-                    <thead>
-                        <tr>
-                            <th>Column</th>
-                            <th>Type</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>user_id</td><td>String</td><td>Unique user identifier</td></tr>
-                        <tr><td>email</td><td>String</td><td>User email address</td></tr>
-                        <tr><td>monthly_income</td><td>Number</td><td>Monthly income in INR</td></tr>
-                        <tr><td>credit_score</td><td>Number</td><td>Credit score (300-900)</td></tr>
-                        <tr><td>employment_status</td><td>String</td><td>salaried / self-employed</td></tr>
-                        <tr><td>age</td><td>Number</td><td>Age (18-100)</td></tr>
-                    </tbody>
-                </table>
             </div>
         </main>
 
-        <footer>
-            <p>Loan Eligibility Engine © 2024</p>
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Built with AWS Lambda, RDS, S3, SES & n8n</p>
         </footer>
     </div>
 

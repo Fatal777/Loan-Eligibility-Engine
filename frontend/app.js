@@ -1,266 +1,269 @@
 /**
  * Loan Eligibility Engine - Frontend Application
- * 
  * Handles CSV file upload using presigned URLs for S3
  */
 
-// Configuration - Update these values after deployment
+// Configuration
 const CONFIG = {
-    // For local testing:
-    API_BASE_URL: 'http://localhost:3000',
-    // For AWS deployment, use:
-    // API_BASE_URL: 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev',
+    API_BASE_URL: 'https://c41a2ucawd.execute-api.ap-south-1.amazonaws.com/dev',
 };
 
 // DOM Elements
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
-const fileInfo = document.getElementById('fileInfo');
+const filePreview = document.getElementById('filePreview');
 const fileName = document.getElementById('fileName');
 const fileSize = document.getElementById('fileSize');
 const removeFile = document.getElementById('removeFile');
 const progressContainer = document.getElementById('progressContainer');
 const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
+const progressPercent = document.getElementById('progressPercent');
 const uploadBtn = document.getElementById('uploadBtn');
+const uploadCard = document.getElementById('uploadCard');
 const statusCard = document.getElementById('statusCard');
 const statusIcon = document.getElementById('statusIcon');
 const statusTitle = document.getElementById('statusTitle');
+const statusMessage = document.getElementById('statusMessage');
 const statusDetails = document.getElementById('statusDetails');
-const batchIdElement = document.getElementById('batchId');
+const uploadAnother = document.getElementById('uploadAnother');
+const connectionStatus = document.getElementById('connectionStatus');
 
 let selectedFile = null;
 
-// Event Listeners
-uploadArea.addEventListener('click', (e) => {
-    if (e.target !== removeFile && !removeFile.contains(e.target)) {
-        fileInput.click();
-    }
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    setupEventListeners();
+    checkAPIConnection();
 });
 
-uploadArea.addEventListener('dragover', (e) => {
+function setupEventListeners() {
+    // Upload area click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // File input change
+    fileInput.addEventListener('change', handleFileSelect);
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', handleDragOver);
+    uploadArea.addEventListener('dragleave', handleDragLeave);
+    uploadArea.addEventListener('drop', handleDrop);
+
+    // Remove file
+    removeFile.addEventListener('click', handleRemoveFile);
+
+    // Upload button
+    uploadBtn.addEventListener('click', handleUpload);
+
+    // Upload another
+    uploadAnother.addEventListener('click', resetUI);
+}
+
+// Check API Connection
+async function checkAPIConnection() {
+    try {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/health`);
+        if (response.ok) {
+            connectionStatus.innerHTML = '<span class="status-dot"></span><span>System Online</span>';
+        } else {
+            throw new Error('API not responding');
+        }
+    } catch (error) {
+        connectionStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span>System Offline</span>';
+    }
+}
+
+// File Selection
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) validateAndSetFile(file);
+}
+
+function handleDragOver(e) {
     e.preventDefault();
     uploadArea.classList.add('dragover');
-});
+}
 
-uploadArea.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('dragover');
-});
-
-uploadArea.addEventListener('drop', (e) => {
+function handleDragLeave(e) {
     e.preventDefault();
     uploadArea.classList.remove('dragover');
-    
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        handleFileSelect(files[0]);
-    }
-});
+}
 
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        handleFileSelect(e.target.files[0]);
-    }
-});
+function handleDrop(e) {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) validateAndSetFile(file);
+}
 
-removeFile.addEventListener('click', (e) => {
-    e.stopPropagation();
-    clearFileSelection();
-});
-
-uploadBtn.addEventListener('click', uploadFile);
-
-// Functions
-function handleFileSelect(file) {
+function validateAndSetFile(file) {
     // Validate file type
     if (!file.name.endsWith('.csv')) {
-        showError('Please select a CSV file');
+        showError('Invalid file type', 'Please select a CSV file.');
         return;
     }
 
-    // Validate file size (max 50MB)
-    const maxSize = 50 * 1024 * 1024;
-    if (file.size > maxSize) {
-        showError('File size must be less than 50MB');
+    // Validate file size (50MB max)
+    if (file.size > 50 * 1024 * 1024) {
+        showError('File too large', 'Maximum file size is 50MB.');
         return;
     }
 
     selectedFile = file;
-    fileName.textContent = file.name;
-    fileSize.textContent = formatFileSize(file.size);
-    fileInfo.style.display = 'block';
-    uploadBtn.disabled = false;
-    
-    // Hide previous status
-    statusCard.style.display = 'none';
+    displayFileInfo(file);
 }
 
-function clearFileSelection() {
+function displayFileInfo(file) {
+    fileName.textContent = file.name;
+    fileSize.textContent = formatFileSize(file.size);
+    uploadArea.style.display = 'none';
+    filePreview.style.display = 'flex';
+    uploadBtn.disabled = false;
+}
+
+function handleRemoveFile(e) {
+    e.stopPropagation();
     selectedFile = null;
     fileInput.value = '';
-    fileInfo.style.display = 'none';
+    filePreview.style.display = 'none';
+    uploadArea.style.display = 'block';
     uploadBtn.disabled = true;
-    progressContainer.style.display = 'none';
-    progressFill.style.width = '0%';
 }
 
 function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' bytes';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-async function uploadFile() {
+// Upload Process
+async function handleUpload() {
     if (!selectedFile) return;
 
-    const btnText = uploadBtn.querySelector('.btn-text');
-    const btnLoader = uploadBtn.querySelector('.btn-loader');
-
     try {
-        // Update UI
-        uploadBtn.disabled = true;
-        btnText.textContent = 'Uploading...';
-        btnLoader.style.display = 'inline-block';
+        // Show progress
+        filePreview.style.display = 'none';
         progressContainer.style.display = 'block';
-        statusCard.style.display = 'none';
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<span>Uploading...</span>';
 
-        // Read file content
-        updateProgress(10, 'Reading file...');
-        const csvContent = await readFileAsText(selectedFile);
+        updateProgress(10, 'Getting upload URL...');
 
-        // Upload to local API
-        updateProgress(40, 'Processing CSV...');
-        const formData = new FormData();
-        formData.append('file', selectedFile);
+        // Step 1: Get presigned URL
+        const presignedResponse = await fetch(
+            `${CONFIG.API_BASE_URL}/upload/presigned-url?filename=${encodeURIComponent(selectedFile.name)}`
+        );
 
-        const response = await fetch(`${CONFIG.API_BASE_URL}/upload-csv`, {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.error || `HTTP error ${response.status}`);
+        if (!presignedResponse.ok) {
+            throw new Error('Failed to get upload URL');
         }
 
-        const result = await response.json();
+        const presignedData = await presignedResponse.json();
+        updateProgress(30, 'Uploading to S3...');
 
-        // Step 2: Trigger matching
-        updateProgress(70, 'Running matching algorithm...');
-        const matchResponse = await fetch(`${CONFIG.API_BASE_URL}/trigger-matching`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ batch_id: result.batch_id })
+        // Step 2: Upload to S3
+        const uploadResponse = await fetch(presignedData.presignedUrl, {
+            method: 'PUT',
+            body: selectedFile,
+            headers: {
+                'Content-Type': 'text/csv',
+            },
         });
 
-        const matchResult = await matchResponse.json();
+        if (!uploadResponse.ok) {
+            throw new Error('Failed to upload file to S3');
+        }
 
-        // Step 3: Show success
+        updateProgress(70, 'Processing data...');
+
+        // Step 3: Wait for processing
+        await new Promise(resolve => setTimeout(resolve, 2000));
         updateProgress(100, 'Complete!');
-        
-        showSuccess({
-            batchId: result.batch_id,
-            usersAdded: result.users_added,
-            matchesCreated: matchResult.matches_created || 0
-        });
+
+        // Show success
+        setTimeout(() => {
+            showSuccess(presignedData);
+        }, 500);
 
     } catch (error) {
         console.error('Upload error:', error);
-        showError(error.message || 'Upload failed. Please try again.');
-    } finally {
-        btnText.textContent = 'Upload & Process';
-        btnLoader.style.display = 'none';
-        uploadBtn.disabled = false;
+        showError('Upload Failed', error.message || 'An error occurred during upload.');
     }
 }
 
-function readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsText(file);
-    });
-}
-
-async function getPresignedUrl(filename) {
-    const url = `${CONFIG.API_BASE_URL}/upload/presigned-url?filename=${encodeURIComponent(filename)}`;
-    
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    });
-
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || `HTTP error ${response.status}`);
-    }
-
-    return response.json();
-}
-
-async function uploadToS3(presignedUrl, file) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        
-        xhr.upload.addEventListener('progress', (e) => {
-            if (e.lengthComputable) {
-                const percentComplete = 30 + (e.loaded / e.total) * 60;
-                updateProgress(percentComplete, `Uploading... ${Math.round(e.loaded / e.total * 100)}%`);
-            }
-        });
-
-        xhr.addEventListener('load', () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                resolve();
-            } else {
-                reject(new Error(`Upload failed with status ${xhr.status}`));
-            }
-        });
-
-        xhr.addEventListener('error', () => {
-            reject(new Error('Network error during upload'));
-        });
-
-        xhr.open('PUT', presignedUrl);
-        xhr.setRequestHeader('Content-Type', 'text/csv');
-        xhr.send(file);
-    });
-}
-
-function updateProgress(percent, message) {
+function updateProgress(percent, text) {
     progressFill.style.width = `${percent}%`;
-    progressText.textContent = message;
+    progressPercent.textContent = `${percent}%`;
+    progressText.textContent = text;
 }
 
+// Status Display
 function showSuccess(data) {
+    uploadCard.style.display = 'none';
     statusCard.style.display = 'block';
-    statusCard.classList.remove('error');
-    statusIcon.textContent = '✓';
-    statusTitle.textContent = 'Upload Successful!';
-    statusDetails.innerHTML = `
-        <p>Your file has been uploaded and processed.</p>
-        <p><strong>${data.usersAdded}</strong> users added, <strong>${data.matchesCreated}</strong> matches found!</p>
-        <p style="margin-top: 10px;">Batch ID: <code>${data.batchId}</code></p>
-        <p style="margin-top: 10px;"><a href="${CONFIG.API_BASE_URL}/matches" target="_blank">View Matches →</a></p>
+
+    statusIcon.className = 'status-icon success';
+    statusIcon.innerHTML = `
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"/>
+        </svg>
     `;
-    
-    // Clear file selection after successful upload
-    setTimeout(() => {
-        clearFileSelection();
-    }, 1000);
+
+    statusTitle.textContent = 'Upload Successful!';
+    statusMessage.textContent = 'Your file has been uploaded and is being processed.';
+
+    statusDetails.innerHTML = `
+        <p><strong>File:</strong> ${selectedFile.name}</p>
+        <p><strong>Size:</strong> ${formatFileSize(selectedFile.size)}</p>
+        <p><strong>Upload ID:</strong> ${data.uploadId || 'N/A'}</p>
+        <p><strong>Status:</strong> Processing started</p>
+    `;
+    statusDetails.style.display = 'block';
 }
 
-function showError(message) {
+function showError(title, message) {
+    uploadCard.style.display = 'none';
     statusCard.style.display = 'block';
-    statusCard.classList.add('error');
-    statusIcon.textContent = '✕';
-    statusTitle.textContent = 'Upload Failed';
-    statusDetails.innerHTML = `<p>${message}</p>`;
+
+    statusIcon.className = 'status-icon error';
+    statusIcon.innerHTML = `
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="15" y1="9" x2="9" y2="15"/>
+            <line x1="9" y1="9" x2="15" y2="15"/>
+        </svg>
+    `;
+
+    statusTitle.textContent = title;
+    statusMessage.textContent = message;
+    statusDetails.style.display = 'none';
 }
 
-// Initialize
-console.log('Loan Eligibility Engine Frontend Loaded');
-console.log('API Base URL:', CONFIG.API_BASE_URL);
+function resetUI() {
+    selectedFile = null;
+    fileInput.value = '';
+    
+    // Reset upload card
+    uploadCard.style.display = 'block';
+    uploadArea.style.display = 'block';
+    filePreview.style.display = 'none';
+    progressContainer.style.display = 'none';
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = `
+        <span>Upload & Process</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+            <polyline points="12 5 19 12 12 19"/>
+        </svg>
+    `;
+
+    // Reset progress
+    progressFill.style.width = '0%';
+    progressPercent.textContent = '0%';
+    progressText.textContent = 'Uploading...';
+
+    // Hide status card
+    statusCard.style.display = 'none';
+}
