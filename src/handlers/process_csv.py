@@ -195,7 +195,10 @@ def store_users(users):
 
 def trigger_n8n_webhook(batch_id, user_count):
     """
-    Trigger n8n matching workflow via webhook.
+    Trigger n8n crawler workflow via webhook.
+    The crawler will then trigger the matching workflow after fetching products.
+    
+    Pipeline: CSV Upload → Crawler (Workflow A) → Matching (Workflow B) → Notification (Workflow C)
     """
     webhook_url = os.environ.get('N8N_WEBHOOK_URL')
     
@@ -204,19 +207,22 @@ def trigger_n8n_webhook(batch_id, user_count):
         return {'skipped': True, 'reason': 'Webhook URL not configured'}
     
     try:
+        # Trigger the crawler workflow first - it will then trigger matching
         response = requests.post(
-            f"{webhook_url}/webhook/matching-trigger",
+            f"{webhook_url}/webhook/crawler-trigger",
             json={
                 'batchId': batch_id,
                 'userCount': user_count,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.utcnow().isoformat(),
+                'triggeredBy': 'lambda-csv-upload'
             },
-            timeout=30
+            timeout=60  # Increased timeout for crawler operations
         )
         
         return {
             'status_code': response.status_code,
-            'response': response.text
+            'response': response.text,
+            'workflow': 'crawler-trigger'
         }
         
     except requests.RequestException as e:

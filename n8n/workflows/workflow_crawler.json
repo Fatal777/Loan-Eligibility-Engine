@@ -28,6 +28,20 @@
     },
     {
       "parameters": {
+        "httpMethod": "POST",
+        "path": "crawler-trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 700],
+      "webhookId": "crawler-trigger-webhook"
+    },
+    {
+      "parameters": {
         "jsCode": "// Strategy 1: Use public APIs and aggregator sites that don't block\n// These are legitimate financial data sources\n\nconst dataSources = [\n  {\n    name: 'BankBazaar API',\n    url: 'https://www.bankbazaar.com/personal-loan.html',\n    type: 'aggregator'\n  },\n  {\n    name: 'PaisaBazaar',\n    url: 'https://www.paisabazaar.com/personal-loan/',\n    type: 'aggregator'\n  },\n  {\n    name: 'MyLoanCare',\n    url: 'https://www.myloancare.in/personal-loan/',\n    type: 'aggregator'\n  }\n];\n\nreturn dataSources.map(s => ({ json: s }));"
       },
       "id": "define-sources",
@@ -130,7 +144,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst successCount = items.filter(i => i.json.product_id).length;\n\n// Get crawl info from earlier node\nconst crawlData = $('Extract Data from HTML').all();\nconst successfulCrawls = crawlData.filter(c => c.json.crawl_status === 'success').length;\n\nreturn [{\n  json: {\n    status: 'completed',\n    crawl_summary: {\n      sources_attempted: crawlData.length,\n      sources_successful: successfulCrawls,\n      sources_blocked: crawlData.length - successfulCrawls\n    },\n    products_generated: 8,\n    products_saved: successCount,\n    timestamp: new Date().toISOString(),\n    message: `Web crawler completed. Crawled ${successfulCrawls}/${crawlData.length} sources. Saved ${successCount} loan products.`\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst successCount = items.filter(i => i.json.product_id).length;\n\n// Get crawl info from earlier node\nconst crawlData = $('Extract Data from HTML').all();\nconst successfulCrawls = crawlData.filter(c => c.json.crawl_status === 'success').length;\n\n// Get batch info from webhook if triggered by Lambda\nlet batchId = null;\nlet userCount = 0;\ntry {\n  const webhookData = $('Webhook Trigger').first();\n  if (webhookData && webhookData.json) {\n    batchId = webhookData.json.body?.batchId || webhookData.json.batchId || null;\n    userCount = webhookData.json.body?.userCount || webhookData.json.userCount || 0;\n  }\n} catch (e) {\n  // Not triggered by webhook, that's fine\n}\n\nreturn [{\n  json: {\n    status: 'completed',\n    batchId: batchId,\n    userCount: userCount,\n    crawl_summary: {\n      sources_attempted: crawlData.length,\n      sources_successful: successfulCrawls,\n      sources_blocked: crawlData.length - successfulCrawls\n    },\n    products_generated: 8,\n    products_saved: successCount,\n    timestamp: new Date().toISOString(),\n    message: `Web crawler completed. Crawled ${successfulCrawls}/${crawlData.length} sources. Saved ${successCount} loan products.`\n  }\n}];"
       },
       "id": "summary",
       "name": "Crawl Summary",
@@ -140,7 +154,54 @@
     },
     {
       "parameters": {
-        "content": "## Robust Web Crawler Strategy\n\n**Why this works when banks block:**\n\n1. **Crawls Aggregator Sites** (BankBazaar, PaisaBazaar, MyLoanCare)\n   - These sites WANT to be indexed\n   - They aggregate data from all banks\n   - Less aggressive anti-bot protection\n\n2. **Browser-like Headers**\n   - Mimics real Chrome browser\n   - Proper Accept headers\n   - Follows redirects\n\n3. **Multi-pattern Extraction**\n   - Multiple regex patterns for interest rates\n   - Bank name detection\n   - Loan amount extraction\n\n4. **Graceful Fallback**\n   - If crawl fails, uses known data\n   - Always produces output\n   - Logs crawl status for debugging\n\n**Product IDs include date** to track daily crawls"
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/trigger-matching",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "batchId",
+              "value": "={{ $json.batchId || 'crawler-triggered-' + Date.now() }}"
+            },
+            {
+              "name": "userCount",
+              "value": "={{ $json.userCount || 0 }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "triggeredBy",
+              "value": "workflow-a-crawler"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "trigger-matching",
+      "name": "Trigger Matching Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'success', message: 'Crawler completed and matching triggered', crawlSummary: $('Crawl Summary').first().json, matchingTriggered: $json.status ? true : false }) }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2250, 400]
+    },
+    {
+      "parameters": {
+        "content": "## Robust Web Crawler Strategy\n\n**Why this works when banks block:**\n\n1. **Crawls Aggregator Sites** (BankBazaar, PaisaBazaar, MyLoanCare)\n   - These sites WANT to be indexed\n   - They aggregate data from all banks\n   - Less aggressive anti-bot protection\n\n2. **Browser-like Headers**\n   - Mimics real Chrome browser\n   - Proper Accept headers\n   - Follows redirects\n\n3. **Multi-pattern Extraction**\n   - Multiple regex patterns for interest rates\n   - Bank name detection\n   - Loan amount extraction\n\n4. **Graceful Fallback**\n   - If crawl fails, uses known data\n   - Always produces output\n   - Logs crawl status for debugging\n\n**Product IDs include date** to track daily crawls\n\n**Pipeline Flow:**\nCSV Upload → Lambda → Crawler (this) → Matching → Notification"
       },
       "id": "note",
       "name": "Strategy Explained",
@@ -154,6 +215,9 @@
       "main": [[{"node": "Define Data Sources", "type": "main", "index": 0}]]
     },
     "Manual Trigger": {
+      "main": [[{"node": "Define Data Sources", "type": "main", "index": 0}]]
+    },
+    "Webhook Trigger": {
       "main": [[{"node": "Define Data Sources", "type": "main", "index": 0}]]
     },
     "Define Data Sources": {
@@ -170,6 +234,12 @@
     },
     "Save to PostgreSQL": {
       "main": [[{"node": "Crawl Summary", "type": "main", "index": 0}]]
+    },
+    "Crawl Summary": {
+      "main": [[{"node": "Trigger Matching Workflow", "type": "main", "index": 0}]]
+    },
+    "Trigger Matching Workflow": {
+      "main": [[{"node": "Webhook Response", "type": "main", "index": 0}]]
     }
   },
   "settings": {
