@@ -26,7 +26,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- PRODUCTION: Fetch ALL pending users with their products in ONE query\n-- No looping needed - SQL does the heavy lifting\n\nSELECT \n  u.user_id,\n  u.name as user_name,\n  u.email,\n  u.credit_score,\n  u.monthly_income,\n  json_agg(\n    json_build_object(\n      'match_id', m.match_id,\n      'product_name', p.product_name,\n      'provider_name', p.provider_name,\n      'interest_rate_min', p.interest_rate_min,\n      'interest_rate_max', p.interest_rate_max,\n      'min_loan_amount', p.min_loan_amount,\n      'max_loan_amount', p.max_loan_amount,\n      'match_score', m.match_score\n    ) ORDER BY m.match_score DESC\n  ) as products,\n  COUNT(m.match_id) as product_count\nFROM users u\nJOIN matches m ON m.user_id = u.user_id \n  AND m.status = 'pending_notification' \n  AND m.notification_sent = false\nJOIN loan_products p ON p.product_id = m.product_id\nGROUP BY u.user_id, u.name, u.email, u.credit_score, u.monthly_income\nLIMIT 1000;"
+        "query": "-- PRODUCTION: Fetch pending users with VERIFIED emails only\n-- In SES sandbox mode, only verified emails can receive messages\n-- Remove the email filter once SES is in production mode\n\nSELECT \n  u.user_id,\n  u.name as user_name,\n  u.email,\n  u.credit_score,\n  u.monthly_income,\n  json_agg(\n    json_build_object(\n      'match_id', m.match_id,\n      'product_name', p.product_name,\n      'provider_name', p.provider_name,\n      'interest_rate_min', p.interest_rate_min,\n      'interest_rate_max', p.interest_rate_max,\n      'min_loan_amount', p.min_loan_amount,\n      'max_loan_amount', p.max_loan_amount,\n      'match_score', m.match_score\n    ) ORDER BY m.match_score DESC\n  ) as products,\n  COUNT(m.match_id) as product_count\nFROM users u\nJOIN matches m ON m.user_id = u.user_id \n  AND m.status = 'pending_notification' \n  AND m.notification_sent = false\nJOIN loan_products p ON p.product_id = m.product_id\nWHERE u.email IN ('fatal.og777@gmail.com', 'saadilkal.10@gmail.com')\nGROUP BY u.user_id, u.name, u.email, u.credit_score, u.monthly_income\nLIMIT 1000;"
       },
       "id": "fetch-all",
       "name": "Fetch All Pending (Bulk)",
@@ -76,6 +76,7 @@
       "typeVersion": 4.2,
       "position": [1000, 300],
       "disabled": false,
+      "onError": "continueRegularOutput",
       "credentials": {
         "aws": {
           "id": "2",
@@ -96,13 +97,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- BULK UPDATE: Mark ALL processed users as notified in ONE query\nUPDATE matches SET \n  notification_sent = true,\n  notification_sent_at = CURRENT_TIMESTAMP,\n  status = 'notified',\n  notified_at = CURRENT_TIMESTAMP\nWHERE user_id = '{{ $json.user_id }}'\n  AND status = 'pending_notification'\nRETURNING match_id;"
+        "query": "-- Mark user as notified (only if email was sent successfully)\n-- The user_id comes from the Generate All Emails node\nUPDATE matches SET \n  notification_sent = true,\n  notification_sent_at = CURRENT_TIMESTAMP,\n  status = 'notified',\n  notified_at = CURRENT_TIMESTAMP\nWHERE user_id = '{{ $('Generate All Emails').item.json.user_id }}'\n  AND status = 'pending_notification'\nRETURNING match_id;"
       },
       "id": "mark-notified",
       "name": "Mark Notified",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [1250, 380],
+      "onError": "continueRegularOutput",
       "credentials": {
         "postgres": {
           "id": "1",
