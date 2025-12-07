@@ -49,16 +49,13 @@ def get_presigned_url(event, context):
         s3_client = boto3.client('s3')
         
         # Generate presigned URL for PUT operation
+        # Note: Removed metadata to simplify client-side upload
         presigned_url = s3_client.generate_presigned_url(
             'put_object',
             Params={
                 'Bucket': bucket_name,
                 'Key': s3_key,
-                'ContentType': 'text/csv',
-                'Metadata': {
-                    'original-filename': original_filename,
-                    'upload-id': upload_id
-                }
+                'ContentType': 'text/csv'
             },
             ExpiresIn=3600  # URL expires in 1 hour
         )
