@@ -108,7 +108,7 @@ Email Templates: Production-ready HTML
 
 ## 🏗️ Complete Architecture
 
-![Architecture Diagram](Diagram.png)
+![Architecture Diagram](./Diagram.png)
 
 ---
 

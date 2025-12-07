@@ -82,7 +82,7 @@ See `src/handlers/upload.py` for implementation.
 
 ## 🏗️ Architecture Overview
 
-![Architecture Diagram](Diagram.png)
+![Architecture Diagram](./Diagram.png)
 
 ### Data Flow
 
