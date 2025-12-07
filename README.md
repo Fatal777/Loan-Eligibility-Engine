@@ -2,9 +2,7 @@
 
 An automated system that ingests user data, discovers personal loan products from public websites, matches users to eligible products, and notifies them via email.
 
-> 📖 **For comprehensive documentation**, see [README_DETAILED.md](README_DETAILED.md)
-> 
-> 🎬 **For video demo script**, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md)
+> 📖 **For comprehensive documentation**, see [README_DETAILED.md]
 
 ## 🚀 Live AWS Deployment
 
@@ -84,56 +82,7 @@ See `src/handlers/upload.py` for implementation.
 
 ## 🏗️ Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              LOAN ELIGIBILITY ENGINE                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                   │
-│   ┌──────────────┐     ┌───────────────────────────────────────────────────┐    │
-│   │   Frontend   │     │                    AWS Cloud                       │    │
-│   │  (Static UI) │     │  ┌─────────────┐    ┌─────────────┐               │    │
-│   │              │────▶│  │ API Gateway │───▶│   Lambda    │               │    │
-│   │  CSV Upload  │     │  │             │    │ Get Presign │               │    │
-│   └──────────────┘     │  └─────────────┘    └──────┬──────┘               │    │
-│          │             │                            │                       │    │
-│          │             │                    ┌───────▼───────┐               │    │
-│          │             │                    │   S3 Bucket   │               │    │
-│          └─────────────┼───────────────────▶│  (CSV Upload) │               │    │
-│                        │                    └───────┬───────┘               │    │
-│                        │                            │ S3 Event              │    │
-│                        │                    ┌───────▼───────┐               │    │
-│                        │                    │    Lambda     │               │    │
-│                        │                    │  Process CSV  │               │    │
-│                        │                    └───────┬───────┘               │    │
-│                        │                            │                       │    │
-│                        │                    ┌───────▼───────┐               │    │
-│                        │                    │ RDS PostgreSQL│               │    │
-│                        │                    │   Database    │◀─────────┐    │    │
-│                        │                    └───────────────┘          │    │    │
-│                        └───────────────────────────────────────────────┼────┘    │
-│                                                                        │         │
-│   ┌────────────────────────────────────────────────────────────────────┼───┐    │
-│   │                     n8n (Self-Hosted Docker)                       │   │    │
-│   │                                                                    │   │    │
-│   │  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐  │   │    │
-│   │  │  Workflow A     │   │  Workflow B     │   │  Workflow C     │  │   │    │
-│   │  │  Web Crawler    │   │  User-Loan      │   │  Notification   │  │   │    │
-│   │  │  (Daily)        │   │  Matching       │   │  (AWS SES)      │  │   │    │
-│   │  │                 │   │                 │   │                 │  │   │    │
-│   │  │ ┌─────────────┐ │   │ ┌─────────────┐ │   │ ┌─────────────┐ │  │   │    │
-│   │  │ │Crawl Sites  │ │   │ │ SQL Pre-    │ │   │ │Fetch Matches│ │  │   │    │
-│   │  │ │Extract Data │ │   │ │ Filter      │ │   │ │Generate     │ │  │   │    │
-│   │  │ │Store in DB  │ │   │ │ Bucket Match│ │──▶│ │Email        │ │  │   │    │
-│   │  │ └─────────────┘ │   │ │ LLM Review  │ │   │ │Send via SES │ │  │   │    │
-│   │  └─────────────────┘   │ └─────────────┘ │   │ └─────────────┘ │  │   │    │
-│   │           │            └────────┬────────┘   └────────┬────────┘  │   │    │
-│   │           │                     │                     │           │   │    │
-│   │           └─────────────────────┴─────────────────────┘           │   │    │
-│   │                           Database Connection                      │   │    │
-│   └────────────────────────────────────────────────────────────────────┘   │    │
-│                                                                             │    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Architecture Diagram](Diagram.png)
 
 ### Data Flow
 
@@ -229,7 +178,27 @@ git clone https://github.com/Fatal777/Loan-Eligibility-Engine.git
 cd Loan-Eligibility-Engine
 ```
 
-### Step 2: Configure Environment
+### Step 2: Set Up Python Virtual Environment
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+
+# On Windows (Command Prompt):
+venv\Scripts\activate.bat
+
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+### Step 3: Configure Environment
 
 ```bash
 # Copy environment template
@@ -242,7 +211,7 @@ cp .env.example .env
 # - AI API keys (optional)
 ```
 
-### Step 3: Set Up Amazon RDS PostgreSQL
+### Step 4: Set Up Amazon RDS PostgreSQL
 
 1. Create RDS PostgreSQL instance via AWS Console
 2. Configure security group to allow n8n and Lambda access
@@ -253,7 +222,7 @@ cp .env.example .env
 psql -h your-rds-endpoint -U your-username -d loan_eligibility -f database/init/01_schema.sql
 ```
 
-### Step 4: Deploy AWS Infrastructure
+### Step 5: Deploy AWS Infrastructure
 
 ```bash
 # Install Serverless plugins
@@ -265,7 +234,7 @@ serverless deploy --stage dev
 # Note the API Gateway URL from output
 ```
 
-### Step 5: Launch n8n
+### Step 6: Launch n8n
 
 ```bash
 # Start n8n with Docker Compose
@@ -275,7 +244,7 @@ docker-compose up -d
 # Default credentials: admin / admin123 (change in .env)
 ```
 
-### Step 6: Configure n8n
+### Step 7: Configure n8n
 
 1. **Add PostgreSQL Credentials**:
    - Go to Settings → Credentials → Add Credential
@@ -297,7 +266,7 @@ docker-compose up -d
    - Click "Active" toggle
    - Save
 
-### Step 7: Configure Frontend
+### Step 8: Configure Frontend
 
 ```javascript
 // Edit frontend/app.js
@@ -306,7 +275,7 @@ const CONFIG = {
 };
 ```
 
-### Step 8: Verify AWS SES
+### Step 9: Verify AWS SES
 
 ```bash
 # Verify sender email (required in sandbox mode)
