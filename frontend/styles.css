@@ -30,15 +30,17 @@ body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     background-color: var(--gray-50);
     color: var(--gray-900);
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
 }
 
 .app {
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 /* ========================================
@@ -99,27 +101,28 @@ body {
 
 .main {
     flex: 1;
-    padding: 4rem 2rem;
+    padding: 2rem 1.5rem;
     max-width: 1200px;
     margin: 0 auto;
     width: 100%;
+    overflow-y: auto;
 }
 
 .hero {
     text-align: center;
-    margin-bottom: 3rem;
+    margin-bottom: 1.5rem;
 }
 
 .title {
-    font-size: 3rem;
+    font-size: 2rem;
     font-weight: 700;
     letter-spacing: -0.05em;
     color: var(--black);
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
 }
 
 .subtitle {
-    font-size: 1.125rem;
+    font-size: 0.95rem;
     color: var(--gray-500);
     max-width: 500px;
     margin: 0 auto;
@@ -132,7 +135,7 @@ body {
 .upload-section {
     display: flex;
     justify-content: center;
-    margin-bottom: 4rem;
+    margin-bottom: 1.5rem;
 }
 
 .upload-card {
@@ -401,6 +404,7 @@ body {
 .pipeline-section {
     max-width: 800px;
     margin: 0 auto;
+    display: none;
 }
 
 .section-title {
@@ -468,14 +472,16 @@ body {
 
 .footer {
     text-align: center;
-    padding: 2rem;
+    padding: 1rem 1.5rem;
     border-top: 1px solid var(--gray-200);
     background: var(--white);
+    flex-shrink: 0;
 }
 
 .footer p {
-    font-size: 0.8125rem;
-    color: var(--gray-400);
+    font-size: 0.75rem;
+    color: var(--gray-500);
+    margin: 0;
 }
 
 /* ========================================

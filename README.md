@@ -2,6 +2,10 @@
 
 An automated system that ingests user data, discovers personal loan products from public websites, matches users to eligible products, and notifies them via email.
 
+> 📖 **For comprehensive documentation**, see [README_DETAILED.md](README_DETAILED.md)
+> 
+> 🎬 **For video demo script**, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md)
+
 ## 🚀 Live AWS Deployment
 
 This project is fully deployed on AWS. Here are the live endpoints:
@@ -55,6 +59,26 @@ curl -X POST https://c41a2ucawd.execute-api.ap-south-1.amazonaws.com/dev/trigger
 - [Design Decisions](#design-decisions)
 - [API Reference](#api-reference)
 - [Testing](#testing)
+
+---
+
+## 🔐 Event-Driven Upload Pattern
+
+We counter Lambda timeout and request size limits using a **professional event-driven pattern**:
+
+1. **Presigned URL Generation** - Frontend requests a presigned URL from Lambda (lightweight, <1s)
+2. **Direct S3 Upload** - Frontend uploads CSV directly to S3 (bypasses Lambda, no size limits)
+3. **S3 Event Trigger** - S3 triggers processCSV Lambda automatically on file upload
+4. **Async Processing** - Lambda processes CSV in background (no timeout constraints)
+
+This pattern:
+- ✅ Eliminates Lambda 30-second timeout issues
+- ✅ Removes request payload size limits (10 MB)
+- ✅ Provides immediate user feedback
+- ✅ Scales to multi-GB files
+- ✅ Follows AWS best practices
+
+See `src/handlers/upload.py` for implementation.
 
 ---
 
@@ -527,12 +551,11 @@ MIT License - See LICENSE file for details.
 
 ## 👥 Contributors
 
-- [Your Name](https://github.com/Fatal777)
+- [Saad Ilkal](https://github.com/Fatal777)
 
 ---
 
 ## 📧 Contact
 
 For questions or issues, please open a GitHub issue or contact:
-- saurabh@clickpe.ai
-- harsh.srivastav@clickpe.ai
+- saadilkal.10@gmail.com
